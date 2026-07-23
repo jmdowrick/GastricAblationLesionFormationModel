@@ -1,0 +1,9 @@
+services:
+  fenics:
+    build: .
+    container_name: fenics_dev
+    volumes:
+      - ./workspace:/workspace
+    working_dir: /workspace   
+    stdin_open: true             # keep STDIN open
+    tty: true                    # allocate a terminal
