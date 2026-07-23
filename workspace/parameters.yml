@@ -1,0 +1,51 @@
+---
+ mechanical:
+  # Hyperelastic domain (tissue)
+  rho: 1075       # Density [kg/m3]
+  K: 3            # Bulk modulus [MPa]
+  c1: 11e-3       # Mooney-Rivlin 1st Parameter [kPa]
+  c2: 18e-3       # Mooney-Rivlin 2nd Parameter [kPa]
+  af: 18.1e-3     # Holzapfel 1st parameter myocytes
+  bf: 16.5        # Holzapfel 2nd parameter myocytes
+  
+  # Orthotropic
+  as: 3e-3        # Holzapfel 1st parameter collagen
+  bs: 9.5         # Holzapfel 2nd parameter collagen
+  afs: 0.4e-3     # Holzapfel 1st parameter shear term
+  bfs: 10.9       # Holzapfel 2nd parameter shear term
+
+ thermal:
+  # Tissue
+  kappa: 0.518    # Thermal conductivity [W/m/K]
+  c: 3017         # Specific heat capacity [J/kg/K]
+
+  # Blood
+  rho_b: 1050     # Blood density [kg/m3]
+  cb: 3617        # Specific Heat capacity [J/Kg/K]
+  Tart: 310.15    # Arterial blood temperature [K]
+  u_b: 50.0       # Blood velocity [cm/3]
+  href: 1417      # Reference convection coefficient
+  u_ref: 24       # Reference velocity [cm/s]
+
+  # Saline
+  u_s: 24         # Saline solution velocity [cm/s]
+  Ts: 295.15      # Saline solution temperature [K]
+
+  # Thermo-mechanics
+  alfaF: 1e-4     # Thermal expansion coefficient in fibre direction
+  beta: 3         # Coefficient of volumentric protein denaturation shrinkage
+ 
+ electrical:
+  sigma: 0.54     # Thermal conductivity [S/m]
+  anisoratio: 2   # Aniso ratio for electrical diffusion
+
+ celldeath:
+  DeltaE1: 210e3  # Activation energy [J/mol]
+  DeltaE2: 38.6e3 # Activation energy [J/mol]
+  DeltaE3: 47.2e3 # Activation energy [J/mol]
+  A1: 3.68e30     # Frequency factor [1/s]
+  A2: 5.68e3      # Frequency factor [1/s]
+  A3: 2.58e5      # Frequency factor [1/s]
+  R: 8.314462618  # Universal gas constant [J/mol/K]
+  LuLn: 0.420     # Unfolded length ratio
+  LdLn: 0.322     # Dead length ratio
