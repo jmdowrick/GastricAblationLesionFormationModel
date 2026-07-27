@@ -12,7 +12,7 @@ class BioheatSolver:
         self.T = fem.Function(self.T_space)
         self.T_n = fem.Function(self.T_space)
 
-        # Initialize to body temperature
+        # Initialise both to body temperature
         self.T.x.array[:] = params['thermal']['T_ref']
         self.T_n.x.array[:] = params['thermal']['T_ref']
 
@@ -50,5 +50,4 @@ class BioheatSolver:
         self.problem.solve()
         
     def advance_time(self):
-        # Update the previous solution for the next time step
         self.T_n.x.array[:] = self.T.x.array
