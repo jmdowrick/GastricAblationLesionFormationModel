@@ -23,17 +23,19 @@ class BioheatSolver:
         rho = params['thermal']['rho_b']
         cb = params['thermal']['cb']
         kappa = params['thermal']['kappa']
+        T_ref = params['thermal']['T_ref']
+        T_art = params['thermal']['Tart']
 
-        # Define Joule heating purely in UFL using the voltage function
-        # sigma must match the definition in electrostatics
-        sigma = calculate_sigma(self.T_n, params)
-
-        Q_joule = sigma * ufl.inner(ufl.grad(V_func), ufl.grad(V_func))
+        # Variational form of Bioheat equation
+        Q_p = 0.8*rho*cb*(T_ref - u)             # Blood perfusion (heat loss)
+        Q_m = 33800                                   # Metabolic heat generation
+        E = -ufl.grad(V_func)
+        Q_joule = calculate_sigma(self.T_n, params) * ufl.inner(E, E) # Joule heating
 
         # Implicit Euler variational form
         F = (rho * cb * (u - self.T_n) / dt) * v * ufl.dx \
           + kappa * ufl.inner(ufl.grad(u), ufl.grad(v)) * ufl.dx \
-          - Q_joule * v * ufl.dx
+          - (Q_joule + Q_m + Q_p) * v * ufl.dx
 
         self.a, self.L = ufl.system(F)
         self.bcs = []

@@ -19,6 +19,7 @@
   kappa: 0.518    # Thermal conductivity [W/m/K]
   c: 3017         # Specific heat capacity [J/kg/K]
   T_ref: 310.15   # Reference temperature [K]
+  Q_m: 33800      # Metabolic heat generation [W/m3] - from Mitchell et al. -> needs updating for gastric tissue
 
   # Blood
   rho_b: 1050     # Blood density [kg/m3]
@@ -36,13 +37,13 @@
   alfaF: 1e-4     # Thermal expansion coefficient in fibre direction
   beta: 3         # Coefficient of volumentric protein denaturation shrinkage
  
-  # Thermal-dependent material parameters
-  eta_k: 0.05     # Thermal conductivity
+  # Thermal-dependent material scaling parameters
+  eta_k: 0.05       # Thermal conductivity
   eta_sigma: 0.015  # Electrical conductivity
   eta_mu: 0.076     # Mooney-Rivlin 
 
  electrical:
-  sigma_0: 0.54   # Electrical conductivity [S/m]
+  sigma_0: 0.554   # Electrical conductivity [S/m]
   anisoratio: 2   # Aniso ratio for electrical diffusion
 
  celldeath:
