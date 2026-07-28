@@ -23,7 +23,7 @@
 
   # Blood
   rho_b: 1050     # Blood density [kg/m3]
-  cb: 3617        # Specific Heat capacity [J/Kg/K]
+  cb: 3617        # Specific Heat capacity [J/kg/K]
   Tart: 310.15    # Arterial blood temperature [K]
   u_b: 0.4        # Blood velocity [m/s]
   href: 1417      # Reference convection coefficient
@@ -38,13 +38,16 @@
   beta: 3         # Coefficient of volumentric protein denaturation shrinkage
  
   # Thermal-dependent material scaling parameters
-  eta_k: 0.05       # Thermal conductivity
+  eta_k: 0.0005     # Thermal conductivity
   eta_sigma: 0.015  # Electrical conductivity
   eta_mu: 0.076     # Mooney-Rivlin 
 
  electrical:
-  sigma_0: 0.554   # Electrical conductivity [S/m]
+  sigma_0: 0.554  # Electrical conductivity [S/m]
   anisoratio: 2   # Aniso ratio for electrical diffusion
+  P_tar: 15 
+  I_0: 1000
+  P_tol: 0.01
 
  celldeath:
   DeltaE1: 210e3  # Activation energy [J/mol]
@@ -56,3 +59,10 @@
   R: 8.314462618  # Universal gas constant [J/mol/K]
   LuLn: 0.420     # Unfolded length ratio
   LdLn: 0.322     # Dead length ratio
+
+ simulation: 
+  dt: 0.1
+  t: 0.0
+  t_end: 60.0
+  output_interval: 1.0 # s
+  temp_threshold: 5000 # [K] == 180 oC -> will become 100 oC when robin conditions implemented properly

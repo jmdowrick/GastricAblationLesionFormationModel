@@ -9,19 +9,21 @@ def calculate_sigma(T, params):
     return params['electrical']['sigma_0'] * (1 + params['thermal']['eta_sigma']*(T - params['thermal']['T_ref']))
 
 class ElectrostaticSolver:
-    def __init__(self, mesh, V_func, T_func, params, ds_electrode, electrode_tags, ground_facets, initial_current=50.0):
-        self.mesh = mesh
+    def __init__(self, domain, V_func, T_func, params, initial_current=50.0):
+        self.mesh = domain.mesh
         self.V_space = V_func.function_space
         self.V = V_func
         
-        # 1. Create Dirichlet BCs 
-        self.V_ground = fem.Constant(self.mesh, 0.0)
-        
+        # 1. Boundary conditions
+        # A. Dirichlet BC
+        ground_facets = domain.facet_tags.find(domain.physical_groups['base'].tag)
         ground_dofs = fem.locate_dofs_topological(self.V_space, 2, ground_facets)
-        bc_ground = fem.dirichletbc(self.V_ground, ground_dofs, self.V_space)
+        bc_ground = fem.dirichletbc(fem.Constant(self.mesh, 0.0), ground_dofs, self.V_space)
         self.bcs = [bc_ground]
 
-        # Neumann BCs
+        # B. Neumann BC
+        electrode_tags = domain.physical_groups['catheter'].tag
+        ds_electrode = ufl.Measure("ds", domain=self.mesh, subdomain_data=domain.facet_tags) 
         self.E_applied = fem.Constant(self.mesh, float(initial_current))
         
         # 2. Setup standard variational form 
@@ -30,7 +32,7 @@ class ElectrostaticSolver:
         self.sigma = calculate_sigma(T_func, params)
         
         self.a = self.sigma * ufl.inner(ufl.grad(u), ufl.grad(v)) * ufl.dx
-        self.L = self.E_applied * v('+') * ds_electrode(electrode_tags)
+        self.L = self.E_applied * v * ds_electrode(electrode_tags)
         
         self.problem = LinearProblem(
             self.a, self.L, bcs=self.bcs, u=self.V,
@@ -41,9 +43,8 @@ class ElectrostaticSolver:
         })
         
         # 3. Pre-compile the UFL form for total dissipated power
-        # Power = integral( sigma * E^2 ) dx
         self.E = -ufl.grad(self.V)
-        power_integrand = self.sigma * ufl.inner(self.E, self.E) * ufl.dx
+        power_integrand = self.sigma * ufl.inner(ufl.grad(self.V), ufl.grad(self.V)) * ufl.dx
         self.power_form = fem.form(power_integrand)
 
     def enforce_power_constraint(self, target_power, tol=0.01):
@@ -62,7 +63,7 @@ class ElectrostaticSolver:
             if self.mesh.comm.rank == 0:
                 print(f"  Power constraint update: Ratio {abs(lam-1.0):.4f}")
                 print(f"  Target/Current Power: {target_power:.2f} / {current_power:.2f} W")
-                print(f"  Adjusting Current: {self.E_applied.value:.2f} V -> {self.E_applied.value / lam:.2f} V")
+                print(f"  Adjusting Current: {self.E_applied.value:.2f} V -> {self.E_applied.value / lam:.2f} A")
                 
             # Update the applied voltage via the Constant
             self.E_applied.value = self.E_applied.value / lam

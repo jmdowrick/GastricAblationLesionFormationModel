@@ -3,13 +3,12 @@ from dolfinx import fem
 from src.electrostatics import calculate_sigma
 
 class BioheatSolver:
-    def __init__(self, mesh, params, V_func, dt):
-        self.mesh = mesh
-
-        self.T_space = fem.functionspace(mesh, ("Lagrange", 1))
+    def __init__(self, domain, params, T_func, V_func):
+        self.mesh = domain.mesh
+        self.T_space = T_func.function_space
 
         # Current and previous temperature fields
-        self.T = fem.Function(self.T_space)
+        self.T = T_func
         self.T_n = fem.Function(self.T_space)
 
         # Initialise both to body temperature
@@ -24,13 +23,14 @@ class BioheatSolver:
         cb = params['thermal']['cb']
         kappa = params['thermal']['kappa']
         T_ref = params['thermal']['T_ref']
-        T_art = params['thermal']['Tart']
+        dt = params['simulation']['dt']
 
         # Variational form of Bioheat equation
-        Q_p = 0.8*rho*cb*(T_ref - u)             # Blood perfusion (heat loss)
+        Q_p = 0.8*rho*cb*(T_ref - u)                  # Blood perfusion (heat loss)
         Q_m = 33800                                   # Metabolic heat generation
         E = -ufl.grad(V_func)
-        Q_joule = calculate_sigma(self.T_n, params) * ufl.inner(E, E) # Joule heating
+        Q_joule = calculate_sigma(self.T_n, params) \
+          * ufl.inner(E, E)                           # Joule heating
 
         # Implicit Euler variational form
         F = (rho * cb * (u - self.T_n) / dt) * v * ufl.dx \
