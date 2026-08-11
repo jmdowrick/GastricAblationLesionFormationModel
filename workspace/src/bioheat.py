@@ -3,9 +3,10 @@ from dolfinx import fem
 from src.electrostatics import calculate_sigma
 
 class BioheatSolver:
-    def __init__(self, domain, params, T_func, V_func):
+    def __init__(self, domain, params, T_func, V_func, Ftot_func):
         self.mesh = domain.mesh
         self.T_space = T_func.function_space
+        dim = domain.mesh.topology.dim
 
         # Current and previous temperature fields
         self.T = T_func
@@ -28,13 +29,22 @@ class BioheatSolver:
         # Variational form of Bioheat equation
         Q_p = 0.8*rho*cb*(T_ref - u)                  # Blood perfusion (heat loss)
         Q_m = 33800                                   # Metabolic heat generation
+
+        # Pullback diffusion and joule heating through deformation gradient
+        F_1 = ufl.inv(Ftot_func)
+        F_1T = ufl.transpose(F_1)
+        J = ufl.det(Ftot_func)
+        kappa_tensor = kappa * ufl.Identity(dim) # currently assuming isotropy in stomach tissue
+
+        diffusion = ufl.inner(F_1 * kappa_tensor * F_1T * ufl.grad(u), ufl.grad(v))
+
         E = -ufl.grad(V_func)
-        Q_joule = calculate_sigma(self.T_n, params) \
-          * ufl.inner(E, E)                           # Joule heating
+        sigma_tensor = calculate_sigma(self.T_n, params) * ufl.Identity(dim)
+        Q_joule = ufl.inner(J * F_1 * sigma_tensor * E, ufl.transpose(Ftot_func) * E) # Joule heating
 
         # Implicit Euler variational form
         F = (rho * cb * (u - self.T_n) / dt) * v * ufl.dx \
-          + kappa * ufl.inner(ufl.grad(u), ufl.grad(v)) * ufl.dx \
+          + diffusion * ufl.dx \
           - (Q_joule + Q_m + Q_p) * v * ufl.dx
 
         self.a, self.L = ufl.system(F)

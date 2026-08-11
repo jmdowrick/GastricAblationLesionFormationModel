@@ -1,64 +1,105 @@
 import numpy as np
 from mpi4py import MPI
 from dolfinx import fem, io
+import basix
 from datetime import datetime
 import time
 
 from src.electrostatics import ElectrostaticSolver
 from src.bioheat import BioheatSolver
 from src.celldeath import CellDeathSolver
+from src.thermohyperelasticity import ThermoHyperElasticitySolver
 from src.parameters import load_parameters
 
+dimension = 2
+
+# -----------
 # Parameters
+# -----------
 params = load_parameters('parameters.yml')
 
 t = params['simulation']['t']
-dt = params['simulation']['dt'] 
+dt = params['simulation']['dt']
 t_end = params['simulation']['t_end']
 
 target_power = params['electrical']['P_tar'] # Watts
 initial_current = params['electrical']['I_0'] # Amps
 power_tolerance = params['electrical']['P_tol']
 
+mech_temp_trigger = params['mechanical']['temp_trigger']
+mech_time_trigger = params['mechanical']['time_trigger']
+
 comm = MPI.COMM_WORLD
 save_output = True
 
+if dimension == 2:
+  path = "mesh/2D_axisymmetric/2D_axisymmetric.msh"
+
+if dimension == 3:
+  path = "mesh/tissue_only/tissue-mesh-catheter-facet.msh"
+
 # ---------------------------------
-# Initialize Domain and Solvers
+# Initialise Domain and Solvers
 # ---------------------------------
-domain = io.gmsh.read_from_msh("mesh/tissue_only/tissue-mesh-catheter-facet.msh", comm)
+domain = io.gmsh.read_from_msh(path, comm, gdim=dimension)
 
 # Scale from millimetres to metres 
 domain.mesh.geometry.x[:,:] *=0.001 
 
 # Define shared function spaces
-V_shared = fem.Function(fem.functionspace(domain.mesh, ("Lagrange", 1)))
-T_shared = fem.Function(fem.functionspace(domain.mesh, ("Lagrange", 1)))
+V_shared = fem.Function(fem.functionspace(domain.mesh, ("Lagrange", 1))) # voltage
+T_shared = fem.Function(fem.functionspace(domain.mesh, ("Lagrange", 1))) # temperature
+
+# Deformation-gradient field
+Ftot_element = basix.ufl.element("Lagrange", basix.CellType(dimension), 1, shape=(dimension,dimension))
+Ftot_shared = fem.Function(fem.functionspace(domain.mesh, Ftot_element))
+Ftot_shared.interpolate(lambda x: np.tile(np.eye(dimension).flatten(), (x.shape[1], 1)).T)
 
 # Output configurations
 run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
 run_id = comm.bcast(run_id, root=0)
-output_path = f'output/{run_id}_elec-heat.bp'
+output_path_scalars = f'output/{run_id}_elec-heat-death-mech_scalars.bp'
+output_path_disp = f'output/{run_id}_elec-heat-death-mech_disp.bp'
 
 # Initialise solvers
+cell_death_solver = CellDeathSolver(domain=domain,
+                                    T_func=T_shared,
+                                    params=params)
+
 bio_solver = BioheatSolver(domain=domain,
                            V_func=V_shared,
                            T_func=T_shared,
+                           Ftot_func=Ftot_shared,
                            params=params)
 
 elec_solver = ElectrostaticSolver(domain=domain,
                                   T_func=T_shared,
                                   V_func=V_shared,
+                                  Ftot_func=Ftot_shared,
                                   params=params,
                                   initial_current=initial_current)
 
-cell_death_solver = CellDeathSolver(domain=domain,
-                                    T_func=T_shared,
-                                    params=params)
+mech_solver = ThermoHyperElasticitySolver(domain=domain,
+                                          T_func=T_shared,
+                                          CD_func=cell_death_solver.NUD,
+                                          Ftot_func=Ftot_shared,
+                                          params=params)
 
 # Set unique names for functions for ParaView
 V_shared.name = "Voltage"
 T_shared.name = "Temperature"
+
+# ------
+# Pre-Ablation Prescribed Loading
+# ------
+
+load_steps = [-10.0, -15.0]
+for load in load_steps: 
+    if comm.rank == 0:
+        print(f" Applying pre-ablation load: {load} g", flush=True)
+
+    mech_solver.apply_catheter_load(load, params)
+    mech_solver.solve_step()
 
 # Initial solve to establish baseline fields 
 elec_solver.solve()
@@ -69,6 +110,7 @@ bio_solver.solve_step()
 V_N, map_N = cell_death_solver.W.sub(0).collapse()
 V_U, map_U = cell_death_solver.W.sub(1).collapse()
 V_D, map_D = cell_death_solver.W.sub(2).collapse()
+V_disp, map_disp = mech_solver.W.sub(0).collapse()
 
 N_out = fem.Function(V_N)
 N_out.name = "Healthy"
@@ -82,9 +124,15 @@ D_out = fem.Function(V_D)
 D_out.name = "Dead"
 D_out.x.array[:] = cell_death_solver.NUD.x.array[map_D]
 
+u_out = fem.Function(V_disp)
+u_out.name = "Displacement"
+u_out.x.array[:] = mech_solver.up.x.array[map_disp] 
+
 if save_output:
-    vtx = io.VTXWriter(comm, output_path, [N_out, U_out, D_out, V_shared, T_shared], engine="BP4")
-    vtx.write(t) # store initial conditions
+    vtx_scalars = io.VTXWriter(comm, output_path_scalars, [N_out, U_out, D_out, V_shared, T_shared], engine="BP4")
+    vtx_disp = io.VTXWriter(comm, output_path_disp, [u_out], engine="BP4")
+    vtx_scalars.write(t) # store initial conditions
+    vtx_disp.write(t)
 
 # ---------------------------------
 # Time Stepping Loop
@@ -94,6 +142,9 @@ output_interval = params['simulation']['output_interval']
 
 next_save_time = t + output_interval
 global_max = comm.allreduce(T_shared.x.array.max(), op=MPI.MAX)
+
+t_prev_mech = t
+T_max_prev = global_max
 
 while t <= t_end and global_max < params['simulation']['temp_threshold']:
     t += dt
@@ -136,18 +187,43 @@ while t <= t_end and global_max < params['simulation']['temp_threshold']:
         # Solve Electrostatic PDE
         elec_solver.solve()
 
+    # Decide whether to update mechanics
+    T_max_now = comm.allreduce(T_shared.x.array.max(), op=MPI.MAX)
+    if (abs(T_max_now - T_max_prev) >= mech_temp_trigger) or ((t - t_prev_mech) > mech_time_trigger):
+        if comm.rank == 0:
+            print(" Solving mechanical problem", flush=True)
+
+        mech_solver.solve_step()
+        u_out.x.array[:] = mech_solver.up.x.array[map_disp] 
+        T_max_prev = T_max_now
+        t_prev_mech = t
     if comm.rank == 0:
         print(f"\nTime: {t:.1f} s", flush=True)
         
     if save_output and t >= (next_save_time - 1e-8): 
-        vtx.write(t)
+        vtx_scalars.write(t)
+        vtx_disp.write(t)
         global_max = comm.allreduce(T_shared.x.array.max(), op=MPI.MAX)
         next_save_time += output_interval
         if comm.rank == 0:
             print(f"\nMax temp: {(global_max-273.15):.1f} oC", flush=True)
 
+# --------
+# Post-Ablation Load Removal
+# --------
+if comm.rank == 0:
+    print("\nSolving mechanical problem after load removal (0 g)", flush = True)
+
+mech_solver.apply_catheter_load(0.0, params)
+mech_solver.solve_step()
+
+u_out.x.array[:] = mech_solver.up.x.array[map_disp] 
+
 if save_output:
-    vtx.close()
+    vtx_scalars.write(t)
+    vtx_disp.write(t)
+    vtx_scalars.close()
+    vtx_disp.close()
 
 toc = time.perf_counter()
 

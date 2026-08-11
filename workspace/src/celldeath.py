@@ -10,8 +10,9 @@ class CellDeathSolver:
     def __init__(self, domain, T_func, params):
         self.mesh = domain.mesh
         self.T = T_func
+        dim = domain.mesh.topology.dim
 
-        cell_type = basix.CellType(3)
+        cell_type = basix.CellType(dim)
 
         # Define space
         P1 = basix.ufl.element("CG", cell_type, 1)
@@ -19,12 +20,12 @@ class CellDeathSolver:
         self.W = fem.functionspace(self.mesh, M)
 
         self.NUD = fem.Function(self.W) # current time step
-        self.NUD_n = fem.Function(self.W) # previous time step
+        self.NUD_n = fem.Function(self.W) # previous time step - TODO remove this - we shouldn't need a function space (just store previous results)
 
         self.initialise_cell_states()
 
         N, U, D = ufl.split(self.NUD)
-        N_n, U_n, D_n = ufl.split(self.NUD_n)
+        N_n, U_n, D_n = ufl.split(self.NUD_n) #  TODO - this should be a collection of fem.Constant that we can update with the old NUD values
         n, u, d = ufl.TestFunctions(self.W)
 
         # Thermal parameters

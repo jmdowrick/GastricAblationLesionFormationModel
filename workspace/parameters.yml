@@ -14,6 +14,10 @@
   afs: 0.4e-3     # Holzapfel 1st parameter shear term
   bfs: 10.9       # Holzapfel 2nd parameter shear term
 
+  temp_trigger: 10.0 # Change in t_max required to trigger recalculation of mechanical deformation [K]
+  time_trigger: 20   # Number of time steps between recomputing mechanical deformation [num time steps]
+  diameter: 2.5e-3 # Catheter diameter [m]
+
  thermal:
   # Tissue
   kappa: 0.518    # Thermal conductivity [W/m/K]
@@ -63,6 +67,7 @@
  simulation: 
   dt: 0.1
   t: 0.0
-  t_end: 60.0
-  output_interval: 1.0 # s
+  t_end: 0.1
+  output_interval: 0.1 # s
   temp_threshold: 5000 # [K] == 180 oC -> will become 100 oC when robin conditions implemented properly
+  

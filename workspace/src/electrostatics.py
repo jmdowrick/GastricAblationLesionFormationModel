@@ -9,15 +9,17 @@ def calculate_sigma(T, params):
     return params['electrical']['sigma_0'] * (1 + params['thermal']['eta_sigma']*(T - params['thermal']['T_ref']))
 
 class ElectrostaticSolver:
-    def __init__(self, domain, V_func, T_func, params, initial_current=50.0):
+    def __init__(self, domain, V_func, T_func, Ftot_func, params, initial_current=50.0):
         self.mesh = domain.mesh
         self.V_space = V_func.function_space
         self.V = V_func
+
+        dim = domain.mesh.topology.dim
         
         # 1. Boundary conditions
         # A. Dirichlet BC
         ground_facets = domain.facet_tags.find(domain.physical_groups['base'].tag)
-        ground_dofs = fem.locate_dofs_topological(self.V_space, 2, ground_facets)
+        ground_dofs = fem.locate_dofs_topological(self.V_space, dim-1, ground_facets)
         bc_ground = fem.dirichletbc(fem.Constant(self.mesh, 0.0), ground_dofs, self.V_space)
         self.bcs = [bc_ground]
 
@@ -30,8 +32,12 @@ class ElectrostaticSolver:
         u = ufl.TrialFunction(self.V_space)
         v = ufl.TestFunction(self.V_space)
         self.sigma = calculate_sigma(T_func, params)
-        
-        self.a = self.sigma * ufl.inner(ufl.grad(u), ufl.grad(v)) * ufl.dx
+
+        F_1 = ufl.inv(Ftot_func)
+        F_1T = ufl.transpose(F_1)
+        sigma_tensor = self.sigma * ufl.Identity(dim)
+
+        self.a = ufl.inner(F_1 * self.sigma * F_1T * ufl.grad(u), ufl.grad(v)) * ufl.dx
         self.L = self.E_applied * v * ds_electrode(electrode_tags)
         
         self.problem = LinearProblem(
@@ -55,7 +61,7 @@ class ElectrostaticSolver:
         # Prevent division by zero if initialization hasn't happened
         if current_power < 1e-12:
             return
-            
+
         # Compute ratio (lambda)
         lam = np.sqrt(current_power / target_power)
         
