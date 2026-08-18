@@ -17,7 +17,12 @@ class ThermoHyperElasticitySolver:
     def __init__(self, domain, T_func, CD_func, Ftot_func, params):
         self.mesh = domain.mesh
         self.dim = domain.mesh.topology.dim
-        cell_type = basix.CellType(self.dim) # tetrahedron
+        cell_type = basix.CellType(self.dim)
+
+        x = ufl.SpatialCoordinate(self.mesh)
+        dx = ufl.Measure("dx", domain=self.mesh)
+        ds = ufl.Measure("ds", domain=self.mesh, subdomain_data=domain.facet_tags)
+        catheter_tag = domain.physical_groups['catheter'].tag
 
         # -----
         # Function spaces (Taylor-Hood P2-P1 mixed element)
@@ -67,11 +72,20 @@ class ThermoHyperElasticitySolver:
         # ---------------------------
 
         # Kinematics
-        I = ufl.Identity(self.dim)
+        I = ufl.Identity(3)
 
         Phi = 1 + alfa*dT
 
-        F_tot = I + ufl.grad(u)
+        grad_u = ufl.grad(u)
+        u_r = u[0]
+
+        #u_r_over_r = ufl.conditional(ufl.gt(x[0], 1e-12), u_r / x[0], grad_u[0, 0])
+
+        F_tot = ufl.as_matrix([
+            [1 + grad_u[0, 0], grad_u[0, 1], 0],
+            [grad_u[1, 0], 1 + grad_u[1, 1], 0],
+            [0, 0, 1 + u_r / (x[0]+1e-9)]
+        ])
         J = ufl.det(F_tot)
 
         J_theta = Phi**3
@@ -97,17 +111,16 @@ class ThermoHyperElasticitySolver:
         e = F_1T*E*F_1
 
         # Strain energy density
-        psiVol = (K/4)*(J_mech**2 - 1 - 2*ufl.ln(J_mech)) + \
-          p*(J - J_theta)-(p**2)/(2*K)                              # Incompressibility constraint using Perturbed Lagrangian method
-        psiIso = c1*(I1bar-3) + c2*(I2bar-3)                      # Deviatoric psi for the matrix (Mooney-Rivlin)
-        psiThermal = -3*(alfa - beta*shrink)*K*dT*(ufl.ln(J)/J)     # Thermal strain energy including both expansion (alfa) and shrinkage (-beta*shrink)
+        psiVol = (K/4)*(J_mech**2-1-2*ufl.ln(J_mech))+ p*(J/J_theta - 1)-(p**2)/(2*K)   # Incompressibility constraint using Perturbed Lagrangian method
+        psiIso = c1*(I1bar-3) + c2*(I2bar-3)                          # Deviatoric psi for the matrix (Mooney-Rivlin)
+        psiThermal = -3*(alfa-beta*shrink)*K*dT*(ufl.ln(J)/J)       # Thermal strain energy including both expansion (alfa) and shrinkage (-beta*shrink)             
 
-        psi = psiVol + psiIso + psiThermal
+        psi = psiVol + psiIso +psiThermal
 
         # Stress tensors (for post processing)
         Svol = J_mech*(K/2)*(J_mech - 1/J_mech)*ufl.inv(C_mech)
         Siso = 2*(J_mech**(-2/3))*((-1/3)*(c1*I1bar + 2*c2*I2bar)*ufl.inv(C_mech) + (c1+c2*I1bar)*I - c2*C_mechbar)
-        Sthermal = F_mech_1*(-3*(alfa-beta*shrink)*K*dT*(1/J)*(1-ufl.ln(J)))*F_mech_1T
+        Sthermal = F_mech_1*(-(3/2)*(alfa-beta*shrink)*K*dT*(1/J)*(1-ufl.ln(J)))*F_mech_1T
 
         S_mech = Svol + Siso + Sthermal    # Mechanical 2nd Piola-Kirchoff stress tensor  
         S = Phi**(-2)*S_mech               # 2nd Piola-Kirchoff stress tensor
@@ -121,11 +134,8 @@ class ThermoHyperElasticitySolver:
         self.B_hyp = fem.Constant(self.mesh, np.zeros(self.dim))     # Body force per unit volume
         self.T_hyp = fem.Constant(self.mesh, np.zeros(self.dim))     # Traction force on the boundary
 
-        ds = ufl.Measure("ds", domain=self.mesh, subdomain_data=domain.facet_tags)
-        catheter_tag = domain.physical_groups['catheter'].tag
-
-        PiExt = ufl.dot(self.B_hyp, u)*ufl.dx +ufl.dot(self.T_hyp, u)*ds(catheter_tag)
-        PiInt = psi*ufl.dx
+        PiExt = ufl.dot(self.B_hyp, u) * x[0] * dx + ufl.dot(self.T_hyp, u) * x[0] * ds(catheter_tag)
+        PiInt = psi * x[0] * dx
         Pi = PiInt - PiExt
 
         # First variation of Pi (directional derivative about u in the direction of v)
@@ -144,16 +154,25 @@ class ThermoHyperElasticitySolver:
         zero_disp = fem.Function(V_disp)
         self.bcs = [fem.dirichletbc(zero_disp, clamp_dofs, self.W.sub(0))]
 
+        # axisymmetric BC - prevent radial displacement at the axis.
+        if self.dim == 2:
+            axis_facets = domain.facet_tags.find(domain.physical_groups['axis'].tag)
+            V_r, _ = self.W.sub(0).sub(0).collapse()
+            axis_dofs = fem.locate_dofs_topological((self.W.sub(0).sub(0), V_r), self.dim - 1, axis_facets)
+            zero_ur = fem.Function(V_r)
+            self.bcs.append(fem.dirichletbc(zero_ur, axis_dofs, self.W.sub(0).sub(0)))
+
         # -----
         # Define problem 
         # -----
 
         petsc_options = {
             "snes_type": "newtonls",
-            "snes_linesearch_type": "bt",     
+            "snes_linesearch_type": "none",
+            "snes_monitor": None,
             "snes_atol": 1e-8,
-            "snes_rtol": 1e-7,
-            "snes_max_it": 50,
+            "snes_rtol": 1e-8,
+            "snes_stol": 1e-8,
             "ksp_type": "preonly",
             "pc_type": "lu",
             "pc_factor_mat_solver_type": "mumps",
@@ -165,10 +184,9 @@ class ThermoHyperElasticitySolver:
             petsc_options=petsc_options,
         )
 
-        u_temp, _ = ufl.split(self.up)
         self.Ftot_expr = fem.Expression(
-            ufl.Identity(self.dim) + ufl.grad(u_temp),
-            self.Ftot.function_space.element.interpolation_points
+            F_tot, 
+            self.Ftot.function_space.element.interpolation_points          
         )
 
         self._update_Ftot()
@@ -193,3 +211,13 @@ class ThermoHyperElasticitySolver:
         load_vec = np.zeros(self.dim)
         load_vec[-1] = -pressure
         self.T_hyp.value = load_vec
+
+        if self.mesh.comm.rank == 0:
+          print(
+              f"Load = {load_grams:.3f} g, "
+              f"F = {force_N:.6e} N, "
+              f"d = {diameter:.6e} m, "
+              f"A = {area:.6e} m^2, "
+              f"traction = {pressure:.6e} Pa",
+              flush=True
+          )

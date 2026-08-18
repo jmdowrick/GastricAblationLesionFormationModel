@@ -15,6 +15,11 @@ class ElectrostaticSolver:
         self.V = V_func
 
         dim = domain.mesh.topology.dim
+
+        x = ufl.SpatialCoordinate(self.mesh)
+        dx = ufl.Measure("dx", domain=self.mesh)
+        ds = ufl.Measure("ds", domain=self.mesh, subdomain_data=domain.facet_tags) 
+        catheter_tags = domain.physical_groups['catheter'].tag
         
         # 1. Boundary conditions
         # A. Dirichlet BC
@@ -24,8 +29,6 @@ class ElectrostaticSolver:
         self.bcs = [bc_ground]
 
         # B. Neumann BC
-        electrode_tags = domain.physical_groups['catheter'].tag
-        ds_electrode = ufl.Measure("ds", domain=self.mesh, subdomain_data=domain.facet_tags) 
         self.E_applied = fem.Constant(self.mesh, float(initial_current))
         
         # 2. Setup standard variational form 
@@ -33,24 +36,28 @@ class ElectrostaticSolver:
         v = ufl.TestFunction(self.V_space)
         self.sigma = calculate_sigma(T_func, params)
 
-        F_1 = ufl.inv(Ftot_func)
+        Ftot_inplane = ufl.as_matrix([[Ftot_func[0,0], Ftot_func[0,1]],
+                                       [Ftot_func[1,0], Ftot_func[1,1]]])
+        F_1 = ufl.inv(Ftot_inplane)
         F_1T = ufl.transpose(F_1)
         sigma_tensor = self.sigma * ufl.Identity(dim)
 
-        self.a = ufl.inner(F_1 * self.sigma * F_1T * ufl.grad(u), ufl.grad(v)) * ufl.dx
-        self.L = self.E_applied * v * ds_electrode(electrode_tags)
+        self.a = ufl.inner(F_1 * self.sigma * F_1T * ufl.grad(u), ufl.grad(v)) * x[0] * dx
+        self.L = self.E_applied * v * x[0] * ds(catheter_tags)
         
         self.problem = LinearProblem(
             self.a, self.L, bcs=self.bcs, u=self.V,
             petsc_options_prefix="electrostatic",
             petsc_options={
                 "ksp_type": "cg",
-                "pc_type": "hypre"
-        })
+                "pc_type": "hypre",
+                "ksp_error_if_not_converged": True,
+                }
+          )
         
         # 3. Pre-compile the UFL form for total dissipated power
         self.E = -ufl.grad(self.V)
-        power_integrand = self.sigma * ufl.inner(ufl.grad(self.V), ufl.grad(self.V)) * ufl.dx
+        power_integrand = 2 * np.pi * self.sigma * ufl.inner(ufl.grad(self.V), ufl.grad(self.V)) * x[0] * dx
         self.power_form = fem.form(power_integrand)
 
     def enforce_power_constraint(self, target_power, tol=0.01):

@@ -16,7 +16,7 @@
 
   temp_trigger: 10.0 # Change in t_max required to trigger recalculation of mechanical deformation [K]
   time_trigger: 20   # Number of time steps between recomputing mechanical deformation [num time steps]
-  diameter: 2.5e-3 # Catheter diameter [m]
+  diameter: 3.5e-3 # Catheter diameter [m]
 
  thermal:
   # Tissue
@@ -67,7 +67,7 @@
  simulation: 
   dt: 0.1
   t: 0.0
-  t_end: 0.1
+  t_end: 20.0
   output_interval: 0.1 # s
   temp_threshold: 5000 # [K] == 180 oC -> will become 100 oC when robin conditions implemented properly
   

@@ -54,16 +54,10 @@ class CellDeathSolver:
 
         petsc_options = {
             "snes_type": "newtonls",
-            "snes_linesearch_type": "none",
-            "snes_atol": 1e-12,
-            "snes_rtol": 1e-6,
-            "ksp_error_if_not_converged": True,
-            "ksp_type": "gmres",
-            "ksp_rtol": 1e-8,
-            "pc_type": "hypre",
-            "pc_hypre_type": "boomeramg",
-            "pc_hypre_boomeramg_max_iter": 1,
-            "pc_hypre_boomeramg_cycle_type": "v",
+            "snes_atol": 1e-10,
+            "snes_rtol": 1e-8,
+            "ksp_type": "preonly",
+            "pc_type": "lu",
         }
 
         self.problem = NonlinearProblem(

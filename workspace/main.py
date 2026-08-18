@@ -51,9 +51,10 @@ V_shared = fem.Function(fem.functionspace(domain.mesh, ("Lagrange", 1))) # volta
 T_shared = fem.Function(fem.functionspace(domain.mesh, ("Lagrange", 1))) # temperature
 
 # Deformation-gradient field
-Ftot_element = basix.ufl.element("Lagrange", basix.CellType(dimension), 1, shape=(dimension,dimension))
+q_degree = 2
+Ftot_element = basix.ufl.quadrature_element(cell=basix.CellType(dimension), value_shape=(3,3), degree=q_degree)
 Ftot_shared = fem.Function(fem.functionspace(domain.mesh, Ftot_element))
-Ftot_shared.interpolate(lambda x: np.tile(np.eye(dimension).flatten(), (x.shape[1], 1)).T)
+Ftot_shared.interpolate(lambda x: np.tile(np.eye(3).flatten(), (x.shape[1], 1)).T)
 
 # Output configurations
 run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -93,8 +94,8 @@ T_shared.name = "Temperature"
 # Pre-Ablation Prescribed Loading
 # ------
 
-load_steps = [-10.0, -15.0]
-for load in load_steps: 
+load_steps = [10,15]
+for load in load_steps:
     if comm.rank == 0:
         print(f" Applying pre-ablation load: {load} g", flush=True)
 
@@ -220,6 +221,7 @@ mech_solver.solve_step()
 u_out.x.array[:] = mech_solver.up.x.array[map_disp] 
 
 if save_output:
+    t_post = t + dt
     vtx_scalars.write(t)
     vtx_disp.write(t)
     vtx_scalars.close()

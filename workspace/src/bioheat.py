@@ -8,6 +8,9 @@ class BioheatSolver:
         self.T_space = T_func.function_space
         dim = domain.mesh.topology.dim
 
+        x = ufl.SpatialCoordinate(self.mesh)
+        dx = ufl.Measure("dx", domain=self.mesh)
+
         # Current and previous temperature fields
         self.T = T_func
         self.T_n = fem.Function(self.T_space)
@@ -31,7 +34,9 @@ class BioheatSolver:
         Q_m = 33800                                   # Metabolic heat generation
 
         # Pullback diffusion and joule heating through deformation gradient
-        F_1 = ufl.inv(Ftot_func)
+        Ftot_inplane = ufl.as_matrix([[Ftot_func[0,0], Ftot_func[0,1]],
+                               [Ftot_func[1,0], Ftot_func[1,1]]])
+        F_1 = ufl.inv(Ftot_inplane)
         F_1T = ufl.transpose(F_1)
         J = ufl.det(Ftot_func)
         kappa_tensor = kappa * ufl.Identity(dim) # currently assuming isotropy in stomach tissue
@@ -40,12 +45,12 @@ class BioheatSolver:
 
         E = -ufl.grad(V_func)
         sigma_tensor = calculate_sigma(self.T_n, params) * ufl.Identity(dim)
-        Q_joule = ufl.inner(J * F_1 * sigma_tensor * E, ufl.transpose(Ftot_func) * E) # Joule heating
+        Q_joule = ufl.inner(J * F_1 * sigma_tensor * E, ufl.transpose(Ftot_inplane) * E) # Joule heating
 
         # Implicit Euler variational form
-        F = (rho * cb * (u - self.T_n) / dt) * v * ufl.dx \
-          + diffusion * ufl.dx \
-          - (Q_joule + Q_m + Q_p) * v * ufl.dx
+        F = (rho * cb * (u - self.T_n) / dt) * v * x[0] * dx \
+          + diffusion * x[0] * dx \
+          - (Q_joule + Q_m + Q_p) * v * x[0] * dx
 
         self.a, self.L = ufl.system(F)
         self.bcs = []
